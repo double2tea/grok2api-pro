@@ -80,6 +80,22 @@ class GrokTokenManager:
             logger.error(f"[Token] 加载失败: {e}")
             self.token_data = default
 
+        # 兼容旧key：sso -> ssoNormal
+        if not isinstance(self.token_data, dict):
+            self.token_data = default
+        else:
+            if "sso" in self.token_data:
+                if TokenType.NORMAL.value in self.token_data:
+                    # 合并旧数据，保留现有ssoNormal
+                    self.token_data[TokenType.NORMAL.value].update(self.token_data.get("sso", {}))
+                else:
+                    self.token_data[TokenType.NORMAL.value] = self.token_data.get("sso", {})
+                self.token_data.pop("sso", None)
+
+            # 确保必要key存在
+            self.token_data.setdefault(TokenType.NORMAL.value, {})
+            self.token_data.setdefault(TokenType.SUPER.value, {})
+
     async def _save_data(self) -> None:
         """保存Token数据（支持多进程）"""
         try:

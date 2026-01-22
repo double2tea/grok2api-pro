@@ -63,7 +63,7 @@ class FileStorage(BaseStorage):
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         if not self.token_file.exists():
-            await self._write(self.token_file, orjson.dumps({"sso": {}, "ssoSuper": {}}, option=orjson.OPT_INDENT_2).decode())
+            await self._write(self.token_file, orjson.dumps({"ssoNormal": {}, "ssoSuper": {}}, option=orjson.OPT_INDENT_2).decode())
             logger.info("[Storage] 创建token文件")
 
         if not self.config_file.exists():
@@ -126,7 +126,16 @@ class FileStorage(BaseStorage):
 
     async def load_tokens(self) -> Dict[str, Any]:
         """加载token"""
-        return await self._load_json(self.token_file, {"sso": {}, "ssoSuper": {}}, self._token_lock)
+        data = await self._load_json(self.token_file, {"ssoNormal": {}, "ssoSuper": {}}, self._token_lock)
+        if isinstance(data, dict) and "sso" in data:
+            if "ssoNormal" in data:
+                data["ssoNormal"].update(data.get("sso", {}))
+            else:
+                data["ssoNormal"] = data.get("sso", {})
+            data.pop("sso", None)
+        data.setdefault("ssoNormal", {})
+        data.setdefault("ssoSuper", {})
+        return data
 
     async def save_tokens(self, data: Dict[str, Any]) -> None:
         """保存token"""
@@ -250,7 +259,7 @@ class MysqlStorage(BaseStorage):
     async def _sync_data(self) -> None:
         """同步数据"""
         try:
-            for table, key in [("grok_tokens", "sso"), ("grok_settings", "global")]:
+            for table, key in [("grok_tokens", "ssoNormal"), ("grok_settings", "global")]:
                 data = await self._load_db(table)
                 if data:
                     if table == "grok_tokens":
@@ -260,7 +269,7 @@ class MysqlStorage(BaseStorage):
                     logger.info(f"[Storage] {table.split('_')[1]}数据已从DB同步")
                 else:
                     file_data = await (self._file.load_tokens() if table == "grok_tokens" else self._file.load_config())
-                    if file_data.get(key) or (table == "grok_tokens" and file_data.get("ssoSuper")):
+                    if (file_data.get(key) or file_data.get("sso") or (table == "grok_tokens" and file_data.get("ssoSuper"))):
                         await self._save_db(table, file_data)
                         logger.info(f"[Storage] {table.split('_')[1]}数据已初始化到DB")
         except Exception as e:
@@ -358,7 +367,7 @@ class RedisStorage(BaseStorage):
         """同步数据"""
         try:
             for key, file_func, key_name in [
-                ("grok:tokens", self._file.load_tokens, "sso"),
+                ("grok:tokens", self._file.load_tokens, "ssoNormal"),
                 ("grok:settings", self._file.load_config, "global")
             ]:
                 data = await self._redis.get(key)
@@ -371,7 +380,7 @@ class RedisStorage(BaseStorage):
                     logger.info(f"[Storage] {key.split(':')[1]}数据已从Redis同步")
                 else:
                     file_data = await file_func()
-                    if file_data.get(key_name) or (key == "grok:tokens" and file_data.get("ssoSuper")):
+                    if (file_data.get(key_name) or file_data.get("sso") or (key == "grok:tokens" and file_data.get("ssoSuper"))):
                         await self._redis.set(key, orjson.dumps(file_data).decode())
                         logger.info(f"[Storage] {key.split(':')[1]}数据已初始化到Redis")
         except Exception as e:
