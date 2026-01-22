@@ -14,6 +14,7 @@
 - **启动流程**：`main.py` 先初始化存储，再加载配置、代理、调用日志，并在退出阶段倒序关闭，保证文件模式与多进程一致性。
 - **依赖**：`requirements.txt` 新增 `aiohttp-socks`、`pytest`、`pytest-asyncio`、`hypothesis`，方便代理检测和单元测试；`pyproject.toml` 中 `version` 升级至 `1.4.3`。
 - **配置项**：`app/core/config.py` 支持 `proxy_urls`、`log_max_count`、`retry_status_codes` 等新字段，同时自动规范 `socks5`/`cf_clearance`。
+- **Token 存储兼容**：读取旧 `sso` key 时自动迁移到 `ssoNormal`，并兼容管理端 `ssoNormal` 请求，避免新增 Token 时报错。
 
 ### Removed
 - 默认仓库不再直接提交运行时生成的 `data/setting.toml` 与 `token.json`，改为在首次启动或复制示例文件后再生成，避免误提交。
