@@ -43,6 +43,8 @@ DEFAULT_GLOBAL = {
     "token_refresh_interval": 3600,  # Token状态刷新间隔（秒）
     "token_refresh_scope": "expired",  # expired/all
     "token_zero_expire_threshold": 3,  # 连续0次数失效阈值
+    # 统计展示用：当Token未使用/未拉取到配额（remaining=-1）时，按该值估算剩余次数
+    "assumed_chat_quota_per_token": 80,
 }
 
 

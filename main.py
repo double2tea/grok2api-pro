@@ -152,7 +152,8 @@ app.mount("/static", StaticFiles(directory="app/template"), name="template")
 async def root():
     """根路径"""
     from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/login")
+    # 管理后台会在无会话时自动跳转 /login
+    return RedirectResponse(url="/manage")
 
 
 @app.get("/health")

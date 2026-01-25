@@ -5,6 +5,8 @@
 ## [Unreleased]
 
 ### Changed
+- **后台主页统计**：修复 Chat/Image 总剩余统计偏低（未使用 Token 的 `-1` 不再被忽略；SuperSSO 以相关剩余 `max(normal, heavy)` 计入），并新增全局配置 `assumed_chat_quota_per_token`（默认 80）用于未拉取配额时的估算展示。
+- **主页跳转**：根路径 `/` 默认跳转到 `/manage`（未登录仍会由后台页面自动跳转至 `/login`）。
 - **模型映射**：调整 `grok-4.1` / `grok-4.1-thinking` 的内部模型映射，修复部分模型不可用/拦截导致的调用失败。
 - **后台反馈链接**：将管理后台右上角「反馈」入口指向 `miuzhaii/grok2api-pro` 的 Issues。
 - **后台日志详情媒体渲染**：支持在 `grok-3-fast` 模型的成功调用日志中展示 `media_urls`（图片/视频预览）。
