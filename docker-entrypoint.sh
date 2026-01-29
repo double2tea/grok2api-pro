@@ -70,6 +70,60 @@ PYTHON_SCRIPT
   fi
 fi
 
+# Initialize setting.toml from environment variables
+if [ ! -f "/app/data/setting.toml" ]; then
+  echo "[Entrypoint] Initializing setting.toml from environment variables..."
+  python3 << 'PYTHON_SCRIPT'
+import os
+import toml
+from pathlib import Path
+
+# Paths
+example_path = Path("data/setting.example.toml")
+config_path = Path("/app/data/setting.toml")
+config_path.parent.mkdir(parents=True, exist_ok=True)
+
+# Load default/example config
+if example_path.exists():
+    with open(example_path, "r", encoding="utf-8") as f:
+        config = toml.load(f)
+else:
+    # Fallback default structure
+    config = {
+        "grok": {
+            "api_key": "",
+            "x_statsig_id": "",
+            "retry_status_codes": [401, 429]
+        },
+        "global": {
+            "base_url": "http://localhost:8001",
+            "admin_password": "admin"
+        }
+    }
+
+# Inject environment variables
+# [grok] section
+if api_key := os.getenv("API_KEY"):
+    config.setdefault("grok", {})["api_key"] = api_key
+    
+if x_statsig_id := os.getenv("X_STATSIG_ID"):
+    config.setdefault("grok", {})["x_statsig_id"] = x_statsig_id
+
+# [global] section
+if admin_password := os.getenv("ADMIN_PASSWORD") or os.getenv("PASSWORD"):
+    config.setdefault("global", {})["admin_password"] = admin_password
+
+if base_url := os.getenv("BASE_URL"):
+    config.setdefault("global", {})["base_url"] = base_url
+
+# Save config
+with open(config_path, "w", encoding="utf-8") as f:
+    toml.dump(config, f)
+
+print(f"[Entrypoint] Config generated at {config_path}")
+PYTHON_SCRIPT
+fi
+
 # Start MCP proxy server (optional)
 if [ "${MCP_ENABLED:-1}" = "1" ]; then
   python -m uvicorn mcp_proxy:app --host 0.0.0.0 --port 8001 &
