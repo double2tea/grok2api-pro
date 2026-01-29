@@ -29,7 +29,7 @@ MAX_UPLOADS = 20  # 提高并发上传限制以支持更高并发
 
 class GrokClient:
     """Grok API 客户端"""
-    
+
     _upload_sem = None  # 延迟初始化
     _TLS_ERROR_HINTS = (
         "TLS connect error",
@@ -43,7 +43,9 @@ class GrokClient:
         """获取上传信号量（动态配置）"""
         if GrokClient._upload_sem is None:
             # 从配置读取，如果不可用则使用默认值
-            max_concurrency = setting.global_config.get("max_upload_concurrency", MAX_UPLOADS)
+            max_concurrency = setting.global_config.get(
+                "max_upload_concurrency", MAX_UPLOADS
+            )
             GrokClient._upload_sem = asyncio.Semaphore(max_concurrency)
             logger.debug(f"[Client] 初始化上传并发限制: {max_concurrency}")
         return GrokClient._upload_sem
@@ -54,24 +56,34 @@ class GrokClient:
         model = request["model"]
         content, images = GrokClient._extract_content(request["messages"])
         stream = request.get("stream", False)
-        
+
         # 获取模型信息
         info = Models.get_model_info(model)
         grok_model, mode = Models.to_grok(model)
         is_video = info.get("is_video_model", False)
-        
+
         # 视频模型限制
         if is_video and len(images) > 1:
             logger.warning(f"[Client] 视频模型仅支持1张图片，已截取前1张")
             images = images[:1]
-        
-        return await GrokClient._retry(model, content, images, grok_model, mode, is_video, stream)
+
+        return await GrokClient._retry(
+            model, content, images, grok_model, mode, is_video, stream
+        )
 
     @staticmethod
-    async def _retry(model: str, content: str, images: List[str], grok_model: str, mode: str, is_video: bool, stream: bool):
+    async def _retry(
+        model: str,
+        content: str,
+        images: List[str],
+        grok_model: str,
+        mode: str,
+        is_video: bool,
+        stream: bool,
+    ):
         """重试请求"""
         from app.core.proxy_pool import proxy_pool
-        
+
         last_err = None
         start_time = time.time()
         sso_token = ""
@@ -81,39 +93,47 @@ class GrokClient:
             try:
                 token = token_manager.get_token(model)
                 sso_token = token_manager._extract_sso(token) or ""
-                
+
                 # 获取当前使用的代理
                 proxy_used = await proxy_pool.get_proxy_for_sso(sso_token) or ""
-                
+
                 img_ids, img_uris = await GrokClient._upload(images, token)
 
                 # 视频模型创建会话
                 post_id = None
                 if is_video and img_ids and img_uris:
-                    post_id = await GrokClient._create_post(img_ids[0], img_uris[0], token)
+                    post_id = await GrokClient._create_post(
+                        img_ids[0], img_uris[0], token
+                    )
 
-                payload = GrokClient._build_payload(content, grok_model, mode, img_ids, img_uris, is_video, post_id)
-                result = await GrokClient._request(payload, token, model, stream, post_id)
+                payload = GrokClient._build_payload(
+                    content, grok_model, mode, img_ids, img_uris, is_video, post_id
+                )
+                result = await GrokClient._request(
+                    payload, token, model, stream, post_id
+                )
                 media_urls = []
                 if not stream and isinstance(result, tuple):
                     result, media_urls = result
-                
+
                 # 记录成功日志
                 response_time = time.time() - start_time
-                asyncio.create_task(call_log_service.record_call(
-                    sso=sso_token,
-                    model=model,
-                    success=True,
-                    status_code=200,
-                    response_time=response_time,
-                    proxy_used=proxy_used,
-                    media_urls=media_urls
-                ))
-                
+                asyncio.create_task(
+                    call_log_service.record_call(
+                        sso=sso_token,
+                        model=model,
+                        success=True,
+                        status_code=200,
+                        response_time=response_time,
+                        proxy_used=proxy_used,
+                        media_urls=media_urls,
+                    )
+                )
+
                 # 标记代理成功
                 if proxy_used:
                     proxy_pool.mark_success(proxy_used)
-                
+
                 return result
 
             except GrokApiException as e:
@@ -123,61 +143,71 @@ class GrokClient:
                     # 记录失败日志
                     response_time = time.time() - start_time
                     status = e.context.get("status", 0) if e.context else 0
-                    asyncio.create_task(call_log_service.record_call(
-                        sso=sso_token,
-                        model=model,
-                        success=False,
-                        status_code=status,
-                        response_time=response_time,
-                        error_message=str(e),
-                        proxy_used=proxy_used
-                    ))
+                    asyncio.create_task(
+                        call_log_service.record_call(
+                            sso=sso_token,
+                            model=model,
+                            success=False,
+                            status_code=status,
+                            response_time=response_time,
+                            error_message=str(e),
+                            proxy_used=proxy_used,
+                        )
+                    )
                     raise
 
                 status = e.context.get("status") if e.context else None
                 retry_codes = setting.grok_config.get("retry_status_codes", [401, 429])
-                
+
                 if status not in retry_codes:
                     # 记录失败日志
                     response_time = time.time() - start_time
-                    asyncio.create_task(call_log_service.record_call(
-                        sso=sso_token,
-                        model=model,
-                        success=False,
-                        status_code=status or 0,
-                        response_time=response_time,
-                        error_message=str(e),
-                        proxy_used=proxy_used
-                    ))
+                    asyncio.create_task(
+                        call_log_service.record_call(
+                            sso=sso_token,
+                            model=model,
+                            success=False,
+                            status_code=status or 0,
+                            response_time=response_time,
+                            error_message=str(e),
+                            proxy_used=proxy_used,
+                        )
+                    )
                     raise
 
                 if i < MAX_RETRY - 1:
-                    logger.warning(f"[Client] 失败(状态:{status}), 重试 {i+1}/{MAX_RETRY}")
+                    logger.warning(
+                        f"[Client] 失败(状态:{status}), 重试 {i + 1}/{MAX_RETRY}"
+                    )
                     await asyncio.sleep(0.5)
 
         # 记录最终失败日志
         response_time = time.time() - start_time
-        status = last_err.context.get("status", 0) if last_err and last_err.context else 0
-        asyncio.create_task(call_log_service.record_call(
-            sso=sso_token,
-            model=model,
-            success=False,
-            status_code=status,
-            response_time=response_time,
-            error_message=str(last_err) if last_err else "请求失败",
-            proxy_used=proxy_used
-        ))
-        
+        status = (
+            last_err.context.get("status", 0) if last_err and last_err.context else 0
+        )
+        asyncio.create_task(
+            call_log_service.record_call(
+                sso=sso_token,
+                model=model,
+                success=False,
+                status_code=status,
+                response_time=response_time,
+                error_message=str(last_err) if last_err else "请求失败",
+                proxy_used=proxy_used,
+            )
+        )
+
         raise last_err or GrokApiException("请求失败", "REQUEST_ERROR")
 
     @staticmethod
     def _extract_content(messages: List[Dict]) -> Tuple[str, List[str]]:
         """提取文本和图片"""
         texts, images = [], []
-        
+
         for msg in messages:
             content = msg.get("content", "")
-            
+
             if isinstance(content, list):
                 for item in content:
                     if item.get("type") == "text":
@@ -187,7 +217,7 @@ class GrokClient:
                             images.append(url)
             else:
                 texts.append(content)
-        
+
         return "".join(texts), images
 
     @staticmethod
@@ -195,13 +225,15 @@ class GrokClient:
         """并发上传图片"""
         if not urls:
             return [], []
-        
+
         async def upload_limited(url):
             async with GrokClient._get_upload_semaphore():
                 return await ImageUploadManager.upload(url, token)
-        
-        results = await asyncio.gather(*[upload_limited(u) for u in urls], return_exceptions=True)
-        
+
+        results = await asyncio.gather(
+            *[upload_limited(u) for u in urls], return_exceptions=True
+        )
+
         ids, uris = [], []
         for url, result in zip(urls, results):
             if isinstance(result, Exception):
@@ -211,7 +243,7 @@ class GrokClient:
                 if fid:
                     ids.append(fid)
                     uris.append(furi)
-        
+
         return ids, uris
 
     @staticmethod
@@ -226,19 +258,31 @@ class GrokClient:
         return None
 
     @staticmethod
-    def _build_payload(content: str, model: str, mode: str, img_ids: List[str], img_uris: List[str], is_video: bool = False, post_id: str = None) -> Dict:
+    def _build_payload(
+        content: str,
+        model: str,
+        mode: str,
+        img_ids: List[str],
+        img_uris: List[str],
+        is_video: bool = False,
+        post_id: str = None,
+    ) -> Dict:
         """构建请求载荷"""
         # 视频模型特殊处理
         if is_video and img_uris:
-            img_msg = f"https://grok.com/imagine/{post_id}" if post_id else f"https://assets.grok.com/post/{img_uris[0]}"
+            img_msg = (
+                f"https://grok.com/imagine/{post_id}"
+                if post_id
+                else f"https://assets.grok.com/post/{img_uris[0]}"
+            )
             return {
                 "temporary": True,
                 "modelName": "grok-3",
                 "message": f"{img_msg}  {content} --mode=custom",
                 "fileAttachments": img_ids,
-                "toolOverrides": {"videoGen": True}
+                "toolOverrides": {"videoGen": True},
             }
-        
+
         # 标准载荷
         return {
             "temporary": setting.grok_config.get("temporary", True),
@@ -263,11 +307,13 @@ class GrokClient:
             "disableMemory": False,
             "forceSideBySide": False,
             "modelMode": mode,
-            "isAsyncChat": False
+            "isAsyncChat": False,
         }
 
     @staticmethod
-    async def _request(payload: dict, token: str, model: str, stream: bool, post_id: str = None):
+    async def _request(
+        payload: dict, token: str, model: str, stream: bool, post_id: str = None
+    ):
         """发送请求"""
         if not token:
             raise GrokApiException("认证令牌缺失", "NO_AUTH_TOKEN")
@@ -278,13 +324,13 @@ class GrokClient:
         retry_codes = setting.grok_config.get("retry_status_codes", [401, 429])
         MAX_OUTER_RETRY = 3
         MAX_TLS_RETRY = int(setting.grok_config.get("max_tls_retries", 2))
-        
+
         for outer_retry in range(MAX_OUTER_RETRY + 1):  # +1确保实际重试3次
             # 内层重试：403代理池重试
             max_403_retries = 5
             retry_403_count = 0
             tls_retry_count = 0
-            
+
             while retry_403_count <= max_403_retries:
                 proxy = None
                 try:
@@ -292,81 +338,121 @@ class GrokClient:
                     headers = GrokClient._build_headers(token)
                     if model == "grok-imagine-0.9":
                         file_attachments = payload.get("fileAttachments", [])
-                        ref_id = post_id or (file_attachments[0] if file_attachments else "")
+                        ref_id = post_id or (
+                            file_attachments[0] if file_attachments else ""
+                        )
                         if ref_id:
                             headers["Referer"] = f"https://grok.com/imagine/{ref_id}"
-                    
+
                     # 异步获取代理
                     # 如果是403重试且使用代理池，强制刷新代理
                     if retry_403_count > 0 and proxy_pool._enabled:
-                        logger.info(f"[Client] 403重试 {retry_403_count}/{max_403_retries}，刷新代理...")
+                        logger.info(
+                            f"[Client] 403重试 {retry_403_count}/{max_403_retries}，刷新代理..."
+                        )
                         if sso_token:
                             proxy = await proxy_pool.get_proxy_for_sso(sso_token)
                         else:
                             proxy = await proxy_pool.force_refresh()
                     else:
-                        proxy = await proxy_pool.get_proxy_for_sso(sso_token) if sso_token else await setting.get_proxy_async("service")
-                    
-                    proxies = {"http": proxy, "https": proxy} if proxy else None
-                    
+                        proxy = (
+                            await proxy_pool.get_proxy_for_sso(sso_token)
+                            if sso_token
+                            else await setting.get_proxy_async("service")
+                        )
+
+                    # 检查是否使用 Cloudflare Workers 代理
+                    import os
+
+                    proxy_url = os.getenv("PROXY_URL")
+                    api_endpoint = API_ENDPOINT
+
+                    if proxy_url:
+                        # 使用 Workers 代理：替换域名，不使用 proxies 参数
+                        api_endpoint = proxy_url + "/v1/rest/app-chat/conversations/new"
+                        proxies = None
+                        logger.debug(
+                            f"[Client] 使用 Cloudflare Workers 代理: {proxy_url}"
+                        )
+                    else:
+                        # 使用传统代理
+                        proxies = {"http": proxy, "https": proxy} if proxy else None
+
                     # 执行请求
                     response = await asyncio.to_thread(
                         curl_requests.post,
-                        API_ENDPOINT,
+                        api_endpoint,
                         headers=headers,
                         data=orjson.dumps(payload),
                         impersonate=BROWSER,
                         timeout=TIMEOUT,
                         stream=True,
-                        proxies=proxies
+                        proxies=proxies,
                     )
-                    
+
                     # 内层403重试：仅当有代理池时触发
                     if response.status_code == 403 and proxy_pool._enabled:
                         if proxy:
                             proxy_pool.mark_failure(proxy)
                         retry_403_count += 1
-                        
+
                         if retry_403_count <= max_403_retries:
-                            logger.warning(f"[Client] 遇到403错误，正在重试 ({retry_403_count}/{max_403_retries})...")
+                            logger.warning(
+                                f"[Client] 遇到403错误，正在重试 ({retry_403_count}/{max_403_retries})..."
+                            )
                             await asyncio.sleep(0.5)
                             continue
-                        
+
                         # 内层重试全部失败
-                        logger.error(f"[Client] 403错误，已重试{retry_403_count-1}次，放弃")
-                    
+                        logger.error(
+                            f"[Client] 403错误，已重试{retry_403_count - 1}次，放弃"
+                        )
+
                     # 检查可配置状态码错误 - 外层重试
                     if response.status_code in retry_codes:
                         if outer_retry < MAX_OUTER_RETRY:
-                            delay = (outer_retry + 1) * 0.1  # 渐进延迟：0.1s, 0.2s, 0.3s
-                            logger.warning(f"[Client] 遇到{response.status_code}错误，外层重试 ({outer_retry+1}/{MAX_OUTER_RETRY})，等待{delay}s...")
+                            delay = (
+                                outer_retry + 1
+                            ) * 0.1  # 渐进延迟：0.1s, 0.2s, 0.3s
+                            logger.warning(
+                                f"[Client] 遇到{response.status_code}错误，外层重试 ({outer_retry + 1}/{MAX_OUTER_RETRY})，等待{delay}s..."
+                            )
                             await asyncio.sleep(delay)
                             break  # 跳出内层循环，进入外层重试
                         else:
-                            logger.error(f"[Client] {response.status_code}错误，已重试{outer_retry}次，放弃")
+                            logger.error(
+                                f"[Client] {response.status_code}错误，已重试{outer_retry}次，放弃"
+                            )
                             GrokClient._handle_error(response, token)
-                    
+
                     # 检查响应状态
                     if response.status_code != 200:
                         GrokClient._handle_error(response, token)
-                    
+
                     # 成功 - 重置失败计数
                     asyncio.create_task(token_manager.reset_failure(token))
-                    
+
                     # 如果是重试成功，记录日志
                     if outer_retry > 0 or retry_403_count > 0:
                         logger.info(f"[Client] 重试成功！")
-                    
+
                     # 处理响应
-                    result = (GrokResponseProcessor.process_stream(response, token) if stream 
-                             else await GrokResponseProcessor.process_normal(response, token, model))
-                    
+                    result = (
+                        GrokResponseProcessor.process_stream(response, token)
+                        if stream
+                        else await GrokResponseProcessor.process_normal(
+                            response, token, model
+                        )
+                    )
+
                     asyncio.create_task(GrokClient._update_limits(token, model))
                     return result
-                    
+
                 except curl_requests.RequestsError as e:
                     err_text = str(e)
-                    is_tls = any(hint in err_text for hint in GrokClient._TLS_ERROR_HINTS)
+                    is_tls = any(
+                        hint in err_text for hint in GrokClient._TLS_ERROR_HINTS
+                    )
                     if is_tls and tls_retry_count < MAX_TLS_RETRY:
                         tls_retry_count += 1
                         if proxy:
@@ -392,7 +478,7 @@ class GrokClient:
                 except Exception as e:
                     logger.error(f"[Client] 请求错误: {e}")
                     raise GrokApiException(f"请求错误: {e}", "REQUEST_ERROR") from e
-        
+
         # 理论上不应该到这里，但以防万一
         raise GrokApiException("请求失败：已达到最大重试次数", "MAX_RETRIES_EXCEEDED")
 
@@ -402,6 +488,14 @@ class GrokClient:
         headers = get_dynamic_headers("/rest/app-chat/conversations/new")
         cf = setting.grok_config.get("cf_clearance", "")
         headers["Cookie"] = f"{token};{cf}" if cf else token
+
+        # 添加 Cloudflare Workers 代理 token（如果配置了）
+        import os
+
+        proxy_token = os.getenv("PROXY_TOKEN")
+        if proxy_token:
+            headers["X-Proxy-Token"] = proxy_token
+
         return headers
 
     @staticmethod
@@ -418,12 +512,14 @@ class GrokClient:
             except:
                 data = response.text
                 msg = data[:200] if data else "未知错误"
-        
-        asyncio.create_task(token_manager.record_failure(token, response.status_code, msg))
+
+        asyncio.create_task(
+            token_manager.record_failure(token, response.status_code, msg)
+        )
         raise GrokApiException(
             f"请求失败: {response.status_code} - {msg}",
             "HTTP_ERROR",
-            {"status": response.status_code, "data": data}
+            {"status": response.status_code, "data": data},
         )
 
     @staticmethod

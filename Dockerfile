@@ -15,10 +15,16 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
 
-COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
+# Create data directory
+RUN mkdir -p /app/data /app/logs
 
-EXPOSE 8000 8001
+# Set default environment variables
+ENV API_KEY="" \
+    PROXY_URL="" \
+    PORT=8000 \
+    X_STATSIG_ID="ZTpUeXBlRXJyb3I6IENhbm5vdCByZWFkIHByb3BlcnRpZXMgb2YgdW5kZWZpbmVkIChyZWFkaW5nICdjaGlsZE5vZGVzJyk="
 
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 8000
+
+# Direct start without entrypoint script
+CMD ["python", "main.py"]

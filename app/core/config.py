@@ -98,8 +98,48 @@ class ConfigManager:
     def load(self, section: Literal["global", "grok"]) -> Dict[str, Any]:
         """加载配置节"""
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                config = toml.load(f)[section]
+            # 先加载默认配置
+            if section == "grok":
+                config = DEFAULT_GROK.copy()
+            else:
+                config = DEFAULT_GLOBAL.copy()
+
+            # 尝试从文件加载
+            try:
+                if self.config_path.exists():
+                    with open(self.config_path, "r", encoding="utf-8") as f:
+                        file_config = toml.load(f).get(section, {})
+                        config.update(file_config)
+            except Exception:
+                pass  # 忽略文件读取错误，使用默认配置
+
+            # 用环境变量覆盖
+            import os
+            if section == "grok":
+                # Grok 配置的环境变量映射
+                env_mappings = {
+                    "API_KEY": "api_key",
+                    "PROXY_URL": "proxy_url",
+                    "X_STATSIG_ID": "x_statsig_id",
+                    "CF_CLEARANCE": "cf_clearance",
+                }
+
+                for env_key, config_key in env_mappings.items():
+                    if env_value := os.getenv(env_key):
+                        config[config_key] = env_value
+
+            elif section == "global":
+                # Global 配置的环境变量映射
+                env_mappings = {
+                    "ADMIN_PASSWORD": "admin_password",
+                    "PASSWORD": "admin_password",  # 兼容
+                    "BASE_URL": "base_url",
+                    "LOG_LEVEL": "log_level",
+                }
+
+                for env_key, config_key in env_mappings.items():
+                    if env_value := os.getenv(env_key):
+                        config[config_key] = env_value
 
             # 标准化Grok配置
             if section == "grok":
