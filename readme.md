@@ -62,7 +62,53 @@ curl https://你的服务器地址/v1/chat/completions \
 
 <br>
 
+## Claude MCP Server
+
+本项目内置了完整的 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 服务器，可直接连接到 Claude Desktop 或 Cursor 使用。
+
+### 可用工具
+- `ask_grok`: 调用 Grok 进行对话/搜索
+- `generate_image`: 生成图片 (Text-to-Image)
+- `generate_video`: 生成视频 (Text-to-Video)
+- `list_models`: 查看支持的模型列表
+
+### 连接方式
+**SSE (Server-Sent Events) 端点**:
+```
+https://你的域名/mcp
+```
+或在本地运行时：
+```
+http://localhost:8001/mcp
+```
+
+### Cursor 配置示例
+1. 打开 Cursor Settings -> Features -> MCP
+2. 点击 "Add New MCP Server"
+3. Name: `Grok2API`
+4. Type: `SSE`
+5. URL: `https://your-grok2api-domain.zeabur.app/mcp`
+
+<br>
+
 ## 如何部署
+
+### 方式一：Zeabur 一键部署（推荐）
+
+1. **Fork 本仓库** 到你的 GitHub 账号。
+2. 在 Zeabur 中创建新服务，选择 "Git" 并连接你的仓库。
+3. **配置环境变量**（无需挂载配置文件，自动初始化）：
+   - `API_KEY`: 自定义 API 密钥（用于客户端连接）
+   - `X_STATSIG_ID`: Grok 的 statsig_id (必填)
+   - `GROK_COOKIES`: 你的 Grok SSO Cookie (多个用逗号 `,` 分隔)
+   - `ADMIN_PASSWORD`: 管理后台密码
+   - `BASE_URL`: 你的 Zeabur 域名 (如 `https://xxx.zeabur.app`)
+4. **配置持久化存储** (强烈推荐，防止图片丢失)：
+   - 在 Zeabur 服务设置中添加 **Volume**。
+   - 挂载路径: `/app/data`。
+   - 这样 Token、配置和生成的图片/视频即使重启也不会丢失。
+
+### 方式二：本地/Docker 部署
 
 1. **准备运行环境**：Python ≥ 3.13
 2. **初始化配置**：
@@ -83,9 +129,14 @@ curl https://你的服务器地址/v1/chat/completions \
 |---------------|------|-----------------------------------------|------|
 | STORAGE_MODE  | 否   | 存储模式：file/mysql/redis               | file |
 | DATABASE_URL  | 否   | 数据库连接URL（MySQL/Redis模式时必需）   | mysql://user:pass@host:3306/db |
+| GROK_COOKIES  | 否   | **(自动初始化)** 逗号分隔的 sso token，用于首次启动自动导入 | token1,token2 |
+| API_KEY       | 否   | **(自动初始化)** 设置 API 鉴权密钥 | sk-123456 |
+| X_STATSIG_ID  | 否   | **(自动初始化)** 设置 statsig_id | ... |
+| ADMIN_PASSWORD| 否   | **(自动初始化)** 设置管理后台密码 | admin |
+| BASE_URL      | 否   | **(自动初始化)** 设置公网域名（用于图片回调） | https://xxx.zeabur.app |
 
 **存储模式：**
-- `file`: 本地文件存储（默认）
+- `file`: 本地文件存储（默认）。**在 Zeabur/Docker 中建议挂载 `/app/data` 目录以持久化数据。**。**在 Zeabur/Docker 中建议挂载 `/app/data` 目录以持久化数据。**
 - `mysql`: MySQL数据库存储，需设置DATABASE_URL
 - `redis`: Redis缓存存储，需设置DATABASE_URL
 
