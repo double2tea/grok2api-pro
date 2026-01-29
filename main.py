@@ -165,8 +165,9 @@ async def health_check():
         "version": "1.0.3"
     }
 
-# 挂载MCP服务器 
-app.mount("", mcp_app)
+# 挂载MCP服务到/mcp路径
+app.mount("/mcp", mcp_app)
+logger.info("[MCP] MCP服务已挂载到 /mcp")
 
 
 if __name__ == "__main__":
