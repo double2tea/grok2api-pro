@@ -142,17 +142,20 @@ async def list_models_impl() -> str:
     内部实现: 获取可用模型列表
     """
     try:
-        models = Models.get_models()
+        model_names = Models.get_all_model_names()
         # 格式化为Markdown列表
         result = "### Available Grok Models\n\n"
         result += "| Model ID | Type | Image Gen | Video Gen |\n"
         result += "|----------|------|-----------|-----------|\n"
 
-        for m in models:
-            mid = m.get("id")
+        for model_name in model_names:
+            model_info = Models.get_model_info(model_name)
+            mid = model_name
             mtype = "Basic/Super"
-            img = "✅" if not m.get("is_video_model") else "✅"  # 大部分都支持绘图
-            vid = "✅" if m.get("is_video_model") else "❌"
+            # 检查是否是视频模型
+            is_video_model = model_info.get("is_video_model", False)
+            img = "✅"  # 大部分模型都支持绘图（通过提示词触发）
+            vid = "✅" if is_video_model else "❌"
             result += f"| `{mid}` | {mtype} | {img} | {vid} |\n"
 
         return result
